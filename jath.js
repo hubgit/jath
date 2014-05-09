@@ -14,6 +14,10 @@ Jath.namespaces = null;
 // treated as xpath expressions and will be output directly
 Jath.literalChar = ":";
 
+// values prefixed with attribute charactar marker will return
+//  this attribute's value rather than the text content
+Jath.attributeChar = "@";
+
 /**
 * Rudimentary check for IE
 * Also added support for WSH, uses the same API as IE
@@ -26,8 +30,6 @@ if( typeof WScript != "undefined" ) {
 else if( typeof process != "undefined" ) {
 	// running under node.js
 	m_browser = 'node';
-	var xmljs = require( 'libxmljs' );
-	exports.parse = parse;
 }
 else if( navigator.userAgent.toLowerCase().indexOf( 'msie' ) > -1 ) {
 	m_browser = 'msie';
@@ -37,7 +39,7 @@ else {
 }
 
 /**
-* parse: 
+* parse:
 *	process xml doc according to the given json template
 *	@template - output spec as a json template
 *	@xmldoc - input xml document
@@ -62,39 +64,22 @@ function parse( template, xmldoc, node ) {
 
 function parseArray( template, xmldoc, node ) {
 	var retVal = [];
-	
+
 	if( template[0] != null ) {
-		if( m_browser == 'msie' ) {
-			xmldoc.setProperty("SelectionLanguage", "XPath");
-			xmldoc.setProperty("SelectionNamespaces", createResolverString() );			
-			var nodeList = node.selectNodes( template[0] );
-			var thisNode;
-			while( thisNode = nodeList.nextNode() ) {
-				retVal.push( parse( template[1], xmldoc, thisNode ) );
-			}
-		}
-		else if( m_browser == 'node' ) {
-			var nodeList = node.find( template[0] );
-			for( var i=0; i < nodeList.length; i++ ) {
-				retVal.push( parse( template[1], xmldoc, nodeList[i] ) );
-			}
-		}
-		else {
-			var xpathResult = xmldoc.evaluate( template[0], node, Jath.resolver, XPathResult.ANY_TYPE, null );
-			var thisNode;
-			while( thisNode = xpathResult.iterateNext() ) {
-				retVal.push( parse( template[1], xmldoc, thisNode ) );
-			}
+		var nodeList = node.querySelectorAll(template[0]);
+
+		for( var i=0; i < nodeList.length; i++ ) {
+			retVal.push( parse( template[1], xmldoc, nodeList[i] ) );
 		}
 	}
 	// we can have an array output without iterating over the source
-	// data - in this case, current node is static 
+	// data - in this case, current node is static
 	else {
 		for( var i=1; i < template.length; i++ ) {
 			retVal.push( parse( template[i], xmldoc, node ) );
 		}
 	}
-	
+
 	return retVal;
 }
 
@@ -109,36 +94,20 @@ function parseObject( template, xmldoc, node ) {
 
 function parseItem( template, xmldoc, node ) {
 	if( typeOf( template ) == 'string' && template.substring( 0, 1 ) != Jath.literalChar ) {
-		if( m_browser == 'msie' ) {
-			xmldoc.setProperty("SelectionLanguage", "XPath");
-			xmldoc.setProperty("SelectionNamespaces", createResolverString() );
-			if( node.selectSingleNode( template ) != null ) {
-				return node.selectSingleNode( template ).text;
-			}
-			else {
-				return null;
-			}
+		var attributeName;
+		var attributePosition = template.indexOf(Jath.attributeChar);
+
+		if ( attributePosition !== -1 ) {
+			attributeName = template.substring(attributePosition + 1).trim();
+			template = template.substring(0, attributePosition).trim();
 		}
-		else if( m_browser == 'node' ) {
-			var itemNode = node.get( template );
-			if( itemNode && itemNode.text ) {
-				return itemNode.text();
-			}
-			else if( itemNode && itemNode.value ) {
-				return itemNode.value();
-			}
-			else {
-				return null;
-			}
+
+		var itemNode = template ? node.querySelector(template) : node;
+		if( itemNode ) {
+			return attributeName ? itemNode.getAttribute(attributeName) : itemNode.textContent;
 		}
 		else {
-			var itemNode = xmldoc.evaluate( template, node, Jath.resolver, XPathResult.STRING_TYPE, null ); 
-			if( itemNode ) {
-				return itemNode.stringValue;
-			}
-			else {
-				return null;
-			}
+			return null;
 		}
 	}
 	else {
@@ -168,7 +137,7 @@ function typeOf(value) {
 }
 
 /**
-* IE requires namespaces to be in the form that 
+* IE requires namespaces to be in the form that
 * an xml document would provide. Use underscore
 * for default ns.
 */
